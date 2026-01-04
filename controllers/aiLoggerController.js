@@ -14,23 +14,40 @@ const cohere = new CohereClient({
   token: process.env.COHERE_API_KEY,
 });
 
+// Retry helper for rate limiting
+const retryWithBackoff = async (fn, maxRetries = 3, baseDelay = 5000) => {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (error.status === 429 && i < maxRetries - 1) {
+        const delay = baseDelay * Math.pow(2, i);
+        console.log(`Rate limited. Retrying in ${delay / 1000}s...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+        throw error;
+      }
+    }
+  }
+};
+
 export const analyzeAndLogFood = async (req, res) => {
   const { userId, prompt } = req.body;
 
   try {
-    const cohereRes = await cohere.generate({
-      model: "command",
-      prompt: `Analyze the following meal and give calories, protein, carbs, and fat:\n\n"${prompt}"\n\nReturn JSON format like this:\n{"foodName":"Paneer Tikka", "calories":350, "protein":20, "carbs":15, "fat":25}`,
-      max_tokens: 100,
-      temperature: 0.5,
+    const cohereRes = await retryWithBackoff(async () => {
+      return await cohere.chat({
+        model: "command-r-08-2024",
+        message: `Analyze the following meal and give calories, protein, carbs, and fat:\n\n"${prompt}"\n\nReturn JSON format like this:\n{"foodName":"Paneer Tikka", "calories":350, "protein":20, "carbs":15, "fat":25}`,
+      });
     });
 
     // Debug: print the full Cohere response
     // console.log("Cohere API full response:", JSON.stringify(cohereRes, null, 2));
-    if (!cohereRes || !Array.isArray(cohereRes.generations) || !cohereRes.generations[0]) {
+    if (!cohereRes || !cohereRes.text) {
       throw new Error("Malformed or empty Cohere API response");
     }
-    const responseText = cohereRes.generations[0].text.trim();
+    const responseText = cohereRes.text.trim();
     // Debug: print the raw AI output
     // console.log("Cohere AI raw output:", responseText);
     // Extract JSON substring robustly
