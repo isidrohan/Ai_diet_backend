@@ -38,4 +38,4 @@ const foodLogSchema = new mongoose.Schema(
 );
 
 const FoodLog = mongoose.model("FoodLog", foodLogSchema);
-export default FoodLog;
+export default FoodLog ;
